@@ -1,0 +1,4 @@
+node_modules/ 
+.env
+generate_real_seed.py
+generated_real_seed/
