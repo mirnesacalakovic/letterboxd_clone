@@ -15,14 +15,52 @@ const BASE_SELECT = `
   LEFT JOIN ratings r ON r.movie_id = m.id
 `;
 
-// Lista filmova sa paginacijom, sortirano po naslovu.
-async function findAll({ limit = 20, offset = 0 }) {
+// Lista filmova sa paginacijom i opcionim filterima/sortiranjem.
+// decade: npr. 1990 → filtrira release_year IZMEĐU 1990 i 1999.
+// minRating: filtrira filmove sa average_rating >= data vrednost
+//   (primenjuje se u HAVING, jer average_rating je agregatna kolona).
+// sortBy: 'newest' (release_year DESC), 'rating' (average_rating DESC),
+//   'title' (podrazumevano, alfabetski).
+async function findAll({ limit = 20, offset = 0, decade, minRating, sortBy = 'title' }) {
+  const conditions = [];
+  const params = [];
+  let paramIndex = 1;
+
+  if (decade) {
+    conditions.push(`m.release_year BETWEEN $${paramIndex} AND $${paramIndex + 1}`);
+    params.push(decade, decade + 9);
+    paramIndex += 2;
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const havingConditions = [];
+  if (minRating !== undefined) {
+    havingConditions.push(`AVG(r.rating) >= $${paramIndex}`);
+    params.push(minRating);
+    paramIndex += 1;
+  }
+  const havingClause = havingConditions.length ? `HAVING ${havingConditions.join(' AND ')}` : '';
+
+  const sortColumn = {
+    newest: 'm.release_year DESC NULLS LAST',
+    rating: 'average_rating DESC NULLS LAST',
+    popular: 'rating_count DESC',
+    title: 'm.title ASC',
+  }[sortBy] || 'm.title ASC';
+
+  params.push(limit, offset);
+  const limitParam = paramIndex;
+  const offsetParam = paramIndex + 1;
+
   const result = await pool.query(
     `${BASE_SELECT}
+     ${whereClause}
      GROUP BY m.id
-     ORDER BY m.title ASC
-     LIMIT $1 OFFSET $2`,
-    [limit, offset]
+     ${havingClause}
+     ORDER BY ${sortColumn}
+     LIMIT $${limitParam} OFFSET $${offsetParam}`,
+    params
   );
   return result.rows;
 }

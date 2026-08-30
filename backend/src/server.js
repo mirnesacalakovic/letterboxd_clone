@@ -62,9 +62,24 @@ app.use('/api/users', userRoutes);
 
 const feedRoutes = require('./routes/feedRoutes');
 app.use('/api/feed', feedRoutes);
- 
+
 const listRoutes = require('./routes/listRoutes');
 app.use('/api/lists', listRoutes);
+
+const recommendationRoutes = require('./routes/recommendationRoutes');
+app.use('/api/recommendations', recommendationRoutes);
+
+const homeRoutes = require('./routes/homeRoutes');
+app.use('/api/home', homeRoutes);
+
+const statsRoutes = require('./routes/statsRoutes');
+app.use('/api/stats', statsRoutes);
+
+const commentRoutes = require('./routes/commentRoutes');
+app.use('/api/comments', commentRoutes);
+
+const diaryRoutes = require('./routes/diaryRoutes');
+app.use('/api/diary', diaryRoutes);
 
 // 404 handler za nepostojeće rute
 app.use((req, res) => {

@@ -16,7 +16,7 @@ async function getAll(req, res) {
       return res.status(400).json({ error: 'minRating mora biti između 0.5 i 5.0' });
     }
 
-    const sortBy = ['newest', 'rating', 'title'].includes(req.query.sortBy) ? req.query.sortBy : 'title';
+    const sortBy = ['newest', 'rating', 'popular', 'title'].includes(req.query.sortBy) ? req.query.sortBy : 'title';
 
     const movies = await movieModel.findAll({ limit, offset, decade, minRating, sortBy });
     res.json({ movies });

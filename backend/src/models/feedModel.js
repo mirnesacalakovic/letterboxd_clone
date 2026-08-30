@@ -14,7 +14,8 @@ async function getFeedForUser(userId, { limit = 20, offset = 0 }) {
       SELECT 'rating' AS type, r.created_at AS occurred_at,
              u.id AS user_id, u.username, u.avatar_url,
              m.id AS movie_id, m.title, m.poster_url,
-             r.rating::TEXT AS extra
+             r.rating::TEXT AS extra,
+             NULL AS is_spoiler
       FROM ratings r
       JOIN followed f ON f.user_id = r.user_id
       JOIN users u ON u.id = r.user_id
@@ -25,7 +26,8 @@ async function getFeedForUser(userId, { limit = 20, offset = 0 }) {
       SELECT 'review' AS type, rv.created_at AS occurred_at,
              u.id AS user_id, u.username, u.avatar_url,
              m.id AS movie_id, m.title, m.poster_url,
-             LEFT(rv.content, 140) AS extra
+             LEFT(rv.content, 140) AS extra,
+             rv.is_spoiler
       FROM reviews rv
       JOIN followed f ON f.user_id = rv.user_id
       JOIN users u ON u.id = rv.user_id
@@ -36,7 +38,8 @@ async function getFeedForUser(userId, { limit = 20, offset = 0 }) {
       SELECT 'watched' AS type, w.watched_at AS occurred_at,
              u.id AS user_id, u.username, u.avatar_url,
              m.id AS movie_id, m.title, m.poster_url,
-             NULL AS extra
+             NULL AS extra,
+             NULL AS is_spoiler
       FROM watched_movies w
       JOIN followed f ON f.user_id = w.user_id
       JOIN users u ON u.id = w.user_id
@@ -47,7 +50,8 @@ async function getFeedForUser(userId, { limit = 20, offset = 0 }) {
       SELECT 'watchlist' AS type, wl.created_at AS occurred_at,
              u.id AS user_id, u.username, u.avatar_url,
              m.id AS movie_id, m.title, m.poster_url,
-             NULL AS extra
+             NULL AS extra,
+             NULL AS is_spoiler
       FROM watchlist wl
       JOIN followed f ON f.user_id = wl.user_id
       JOIN users u ON u.id = wl.user_id
