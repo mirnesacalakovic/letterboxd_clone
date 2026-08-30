@@ -54,6 +54,18 @@ app.use('/api/watched', watchedRoutes);
 const watchlistRoutes = require('./routes/watchlistRoutes');
 app.use('/api/watchlist', watchlistRoutes);
 
+const reviewRoutes = require('./routes/reviewRoutes');
+app.use('/api/reviews', reviewRoutes);
+
+const userRoutes = require('./routes/userRoutes');
+app.use('/api/users', userRoutes);
+
+const feedRoutes = require('./routes/feedRoutes');
+app.use('/api/feed', feedRoutes);
+ 
+const listRoutes = require('./routes/listRoutes');
+app.use('/api/lists', listRoutes);
+
 // 404 handler za nepostojeće rute
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

@@ -5,6 +5,7 @@ const movieController = require('../controllers/movieController');
 // VAŽNO: /search mora biti definisan PRE /:id, inače Express
 // tumači "search" kao vrednost za :id parametar.
 router.get('/search', movieController.searchMovies);
+router.get('/:id/reviews', movieController.getReviews);
 router.get('/:id', movieController.getById);
 router.get('/', movieController.getAll);
 
