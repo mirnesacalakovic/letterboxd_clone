@@ -8,7 +8,8 @@ const BASE_SELECT = `
     m.actors, m.keywords, m.poster_url, m.backdrop_url,
     COALESCE(array_agg(DISTINCT g.name) FILTER (WHERE g.name IS NOT NULL), '{}') AS genres,
     ROUND(AVG(r.rating), 2) AS average_rating,
-    COUNT(DISTINCT r.id) AS rating_count
+    COUNT(DISTINCT r.id) AS rating_count,
+    (SELECT COUNT(*) FROM movie_likes ml WHERE ml.movie_id = m.id) AS like_count
   FROM movies m
   LEFT JOIN movie_genres mg ON mg.movie_id = m.id
   LEFT JOIN genres g ON g.id = mg.genre_id
@@ -21,6 +22,8 @@ const BASE_SELECT = `
 //   (primenjuje se u HAVING, jer average_rating je agregatna kolona).
 // sortBy: 'newest' (release_year DESC), 'rating' (average_rating DESC),
 //   'title' (podrazumevano, alfabetski).
+// Vraća { movies, total } — total je ukupan broj rezultata BEZ
+// paginacije (za mobilnu app da zna koliko ima strana/rezultata).
 async function findAll({ limit = 20, offset = 0, decade, minRating, sortBy = 'title' }) {
   const conditions = [];
   const params = [];
@@ -49,20 +52,28 @@ async function findAll({ limit = 20, offset = 0, decade, minRating, sortBy = 'ti
     title: 'm.title ASC',
   }[sortBy] || 'm.title ASC';
 
-  params.push(limit, offset);
+  // Upit bez ORDER BY/LIMIT/OFFSET — koristi se i za podatke i,
+  // umotan u COUNT(*), za total.
+  const baseQuery = `
+    ${BASE_SELECT}
+    ${whereClause}
+    GROUP BY m.id
+    ${havingClause}
+  `;
+
+  const dataParams = [...params, limit, offset];
   const limitParam = paramIndex;
   const offsetParam = paramIndex + 1;
 
-  const result = await pool.query(
-    `${BASE_SELECT}
-     ${whereClause}
-     GROUP BY m.id
-     ${havingClause}
-     ORDER BY ${sortColumn}
-     LIMIT $${limitParam} OFFSET $${offsetParam}`,
-    params
-  );
-  return result.rows;
+  const [dataResult, countResult] = await Promise.all([
+    pool.query(
+      `${baseQuery} ORDER BY ${sortColumn} LIMIT $${limitParam} OFFSET $${offsetParam}`,
+      dataParams
+    ),
+    pool.query(`SELECT COUNT(*) AS total FROM (${baseQuery}) t`, params),
+  ]);
+
+  return { movies: dataResult.rows, total: parseInt(countResult.rows[0].total, 10) };
 }
 
 // Detalji jednog filma po id-u.
@@ -77,27 +88,30 @@ async function findById(id) {
 }
 
 // Pretraga po nazivu (ILIKE, case-insensitive) ILI po režiseru/glumcima/žanru.
-// Koristi se za GET /api/movies/search?q=...
+// Koristi se za GET /api/movies/search?q=... Vraća { movies, total }.
 async function search(query, { limit = 20, offset = 0 }) {
   const likeQuery = `%${query}%`;
-  const result = await pool.query(
-    `${BASE_SELECT}
-     WHERE m.title ILIKE $1
-        OR m.director ILIKE $1
-        OR EXISTS (
-          SELECT 1 FROM unnest(m.actors) AS actor WHERE actor ILIKE $1
-        )
-        OR EXISTS (
-          SELECT 1 FROM movie_genres mg2
-          JOIN genres g2 ON g2.id = mg2.genre_id
-          WHERE mg2.movie_id = m.id AND g2.name ILIKE $1
-        )
-     GROUP BY m.id
-     ORDER BY m.title ASC
-     LIMIT $2 OFFSET $3`,
-    [likeQuery, limit, offset]
-  );
-  return result.rows;
+  const baseQuery = `
+    ${BASE_SELECT}
+    WHERE m.title ILIKE $1
+       OR m.director ILIKE $1
+       OR EXISTS (
+         SELECT 1 FROM unnest(m.actors) AS actor WHERE actor ILIKE $1
+       )
+       OR EXISTS (
+         SELECT 1 FROM movie_genres mg2
+         JOIN genres g2 ON g2.id = mg2.genre_id
+         WHERE mg2.movie_id = m.id AND g2.name ILIKE $1
+       )
+    GROUP BY m.id
+  `;
+
+  const [dataResult, countResult] = await Promise.all([
+    pool.query(`${baseQuery} ORDER BY m.title ASC LIMIT $2 OFFSET $3`, [likeQuery, limit, offset]),
+    pool.query(`SELECT COUNT(*) AS total FROM (${baseQuery}) t`, [likeQuery]),
+  ]);
+
+  return { movies: dataResult.rows, total: parseInt(countResult.rows[0].total, 10) };
 }
 
 module.exports = {

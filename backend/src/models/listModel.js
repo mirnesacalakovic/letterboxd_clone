@@ -96,26 +96,30 @@ async function removeMovie(listId, movieId) {
 
 // Sve javne liste SVIH korisnika (ne samo trenutnog) — za "Discover"
 // pregled. sortBy: 'newest' (default) ili 'movieCount'.
+// Vraća { lists, total }.
 async function findAllPublic({ limit = 20, offset = 0, sortBy = 'newest' }) {
   const sortColumn = {
     newest: 'l.created_at DESC',
     movieCount: 'movie_count DESC',
   }[sortBy] || 'l.created_at DESC';
 
-  const result = await pool.query(
-    `SELECT l.id, l.name, l.description, l.created_at,
-            u.id AS user_id, u.username, u.avatar_url,
-            COUNT(lm.movie_id) AS movie_count
-     FROM movie_lists l
-     JOIN users u ON u.id = l.user_id
-     LEFT JOIN list_movies lm ON lm.list_id = l.id
-     WHERE l.is_public = true
-     GROUP BY l.id, u.id
-     ORDER BY ${sortColumn}
-     LIMIT $1 OFFSET $2`,
-    [limit, offset]
-  );
-  return result.rows;
+  const baseQuery = `
+    SELECT l.id, l.name, l.description, l.created_at,
+           u.id AS user_id, u.username, u.avatar_url,
+           COUNT(lm.movie_id) AS movie_count
+    FROM movie_lists l
+    JOIN users u ON u.id = l.user_id
+    LEFT JOIN list_movies lm ON lm.list_id = l.id
+    WHERE l.is_public = true
+    GROUP BY l.id, u.id
+  `;
+
+  const [dataResult, countResult] = await Promise.all([
+    pool.query(`${baseQuery} ORDER BY ${sortColumn} LIMIT $1 OFFSET $2`, [limit, offset]),
+    pool.query(`SELECT COUNT(*) AS total FROM (${baseQuery}) t`, []),
+  ]);
+
+  return { lists: dataResult.rows, total: parseInt(countResult.rows[0].total, 10) };
 }
 
 module.exports = {

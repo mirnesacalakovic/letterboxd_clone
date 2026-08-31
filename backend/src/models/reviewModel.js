@@ -69,7 +69,12 @@ async function remove(id) {
 
 // Sve recenzije za jedan film, sa username-om autora i brojem lajkova —
 // koristi se za GET /api/movies/:id/reviews.
-async function findAllForMovie(movieId) {
+// sortBy: 'newest' (default, po datumu) ili 'mostLiked' (po broju lajkova).
+async function findAllForMovie(movieId, { sortBy = 'newest' } = {}) {
+  const orderClause = sortBy === 'mostLiked'
+    ? 'like_count DESC, r.created_at DESC'
+    : 'r.created_at DESC';
+
   const result = await pool.query(
     `SELECT r.id, r.user_id, r.content, r.is_spoiler, r.tags,
             r.created_at, r.updated_at,
@@ -80,7 +85,7 @@ async function findAllForMovie(movieId) {
      LEFT JOIN review_likes rl ON rl.review_id = r.id
      WHERE r.movie_id = $1
      GROUP BY r.id, u.username, u.avatar_url
-     ORDER BY r.created_at DESC`,
+     ORDER BY ${orderClause}`,
     [movieId]
   );
   return result.rows;

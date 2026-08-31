@@ -75,6 +75,21 @@ async function update(id, { username, avatarUrl, bio }) {
   return result.rows[0];
 }
 
+// Pretraga korisnika po username-u (ILIKE, case-insensitive) —
+// koristi se za GET /api/users/search?q=...
+async function search(query, { limit = 20, offset = 0 }) {
+  const likeQuery = `%${query}%`;
+  const result = await pool.query(
+    `SELECT id, username, avatar_url, bio
+     FROM users
+     WHERE username ILIKE $1
+     ORDER BY username ASC
+     LIMIT $2 OFFSET $3`,
+    [likeQuery, limit, offset]
+  );
+  return result.rows;
+}
+
 module.exports = {
   findByEmail,
   findByUsername,
@@ -82,4 +97,5 @@ module.exports = {
   findProfileById,
   create,
   update,
+  search,
 };

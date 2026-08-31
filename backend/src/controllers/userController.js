@@ -78,8 +78,26 @@ async function setFavorites(req, res) {
   }
 }
 
+// GET /api/users/search?q=... — javno.
+async function searchUsers(req, res) {
+  try {
+    const query = req.query.q;
+    if (!query || !query.trim()) {
+      return res.status(400).json({ error: 'Query parametar q je obavezan' });
+    }
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const users = await userModel.search(query.trim(), { limit, offset });
+    res.json({ users });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+}
+
 module.exports = {
   getProfile,
   updateProfile,
   setFavorites,
+  searchUsers,
 };

@@ -73,9 +73,43 @@ async function getPopularMovies(limit) {
   return result.rows;
 }
 
+// Feature podaci JEDNOG filma (za "similar movies" — movie-to-movie,
+// za razliku od getUserHighRatedMoviesWithFeatures koji je user-to-movie).
+async function getMovieFeatures(movieId) {
+  const result = await pool.query(
+    `SELECT m.id, m.title, m.poster_url, m.director, m.actors, m.keywords,
+            ${GENRE_AGG}
+     FROM movies m
+     LEFT JOIN movie_genres mg ON mg.movie_id = m.id
+     LEFT JOIN genres g ON g.id = mg.genre_id
+     WHERE m.id = $1
+     GROUP BY m.id`,
+    [movieId]
+  );
+  return result.rows[0] || null;
+}
+
+// Feature podaci SVIH ostalih filmova (isključujući dati) — kandidati
+// za "similar movies" poređenje.
+async function getAllMovieFeaturesExcept(movieId) {
+  const result = await pool.query(
+    `SELECT m.id, m.title, m.poster_url, m.director, m.actors, m.keywords,
+            ${GENRE_AGG}
+     FROM movies m
+     LEFT JOIN movie_genres mg ON mg.movie_id = m.id
+     LEFT JOIN genres g ON g.id = mg.genre_id
+     WHERE m.id != $1
+     GROUP BY m.id`,
+    [movieId]
+  );
+  return result.rows;
+}
+
 module.exports = {
   getUserRatingCount,
   getUserHighRatedMoviesWithFeatures,
   getCandidateMoviesWithFeatures,
   getPopularMovies,
+  getMovieFeatures,
+  getAllMovieFeaturesExcept,
 };

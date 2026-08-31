@@ -150,8 +150,8 @@ async function discover(req, res) {
     const offset = parseInt(req.query.offset, 10) || 0;
     const sortBy = req.query.sortBy === 'movieCount' ? 'movieCount' : 'newest';
 
-    const lists = await listModel.findAllPublic({ limit, offset, sortBy });
-    res.json({ lists });
+    const { lists, total } = await listModel.findAllPublic({ limit, offset, sortBy });
+    res.json({ lists, total });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal Server Error' });

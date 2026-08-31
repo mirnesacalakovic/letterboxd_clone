@@ -6,6 +6,8 @@ const diaryController = require('../controllers/diaryController');
 const authMiddleware = require('../middleware/authMiddleware');
 
 // Javne rute — pregled profila, pratilaca i dnevnika ne zahtevaju login.
+// VAŽNO: /search mora biti PRE /:id (isti razlog kao movieRoutes).
+router.get('/search', userController.searchUsers);
 router.get('/:id', userController.getProfile);
 router.get('/:id/followers', followController.getFollowers);
 router.get('/:id/following', followController.getFollowing);
