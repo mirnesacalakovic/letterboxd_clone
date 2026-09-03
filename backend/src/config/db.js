@@ -1,4 +1,7 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+types.setTypeParser(20, (value) => Number.parseInt(value, 10));
+types.setTypeParser(1700, (value) => Number.parseFloat(value));
 
 // Jedina konekcija na bazu u celoj aplikaciji.
 // Svi drugi fajlovi (modeli, kontroleri) importuju ovaj pool.

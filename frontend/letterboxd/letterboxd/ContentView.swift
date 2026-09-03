@@ -1,24 +1,19 @@
-//
-//  ContentView.swift
-//  letterboxd
-//
-//  Created by Mirnesa Calakovic on 2. 9. 2026..
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    @EnvironmentObject var authViewModel: AuthViewModel
 
-#Preview {
-    ContentView()
+    var body: some View {
+        Group {
+            if authViewModel.isLoading && authViewModel.currentUser == nil {
+                ZStack { AppTheme.background.ignoresSafeArea(); ProgressView("Loading...").tint(.white).foregroundStyle(.white) }
+            } else if authViewModel.isAuthenticated {
+                MainTabView()
+            } else {
+                LoginView()
+            }
+        }
+        .preferredColorScheme(.dark)
+        .task { await authViewModel.restoreSession() }
+    }
 }

@@ -1,92 +1,226 @@
-const commentModel = require('../models/commentModel');
-const reviewModel = require('../models/reviewModel');
+const commentModel =
+  require('../models/commentModel');
+
+const reviewModel =
+  require('../models/reviewModel');
 
 const MAX_COMMENT_LENGTH = 1000;
+
+function validateComment(content) {
+  if (
+    !content?.trim()
+  ) {
+    return 'content je obavezan';
+  }
+
+  if (
+    content.length >
+    MAX_COMMENT_LENGTH
+  ) {
+    return (
+      `content ne sme biti duži od ` +
+      `${MAX_COMMENT_LENGTH} karaktera`
+    );
+  }
+
+  return null;
+}
 
 // POST /api/reviews/:reviewId/comments
 async function create(req, res) {
   try {
-    const { reviewId } = req.params;
-    const { content } = req.body;
+    const { reviewId } =
+      req.params;
 
-    if (!content || !content.trim()) {
-      return res.status(400).json({ error: 'content je obavezan' });
-    }
-    if (content.length > MAX_COMMENT_LENGTH) {
-      return res.status(400).json({ error: `content ne sme biti duži od ${MAX_COMMENT_LENGTH} karaktera` });
+    const { content } =
+      req.body;
+
+    const validationError =
+      validateComment(content);
+
+    if (validationError) {
+      return res.status(400).json({
+        error: validationError,
+      });
     }
 
-    const review = await reviewModel.findById(reviewId);
+    const review =
+      await reviewModel.findById(
+        reviewId
+      );
+
     if (!review) {
-      return res.status(404).json({ error: 'Recenzija ne postoji' });
+      return res.status(404).json({
+        error:
+          'Recenzija ne postoji',
+      });
     }
 
-    const comment = await commentModel.create({ reviewId, userId: req.userId, content: content.trim() });
-    res.status(201).json({ comment });
+    if (
+      review.comments_enabled ===
+      false
+    ) {
+      return res.status(403).json({
+        error:
+          'Autor je isključio odgovore na ovu recenziju',
+      });
+    }
+
+    const comment =
+      await commentModel.create({
+        reviewId,
+        userId: req.userId,
+        content: content.trim(),
+      });
+
+    return res
+      .status(201)
+      .json({
+        comment,
+      });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
+
+    return res.status(500).json({
+      error:
+        'Internal Server Error',
+    });
   }
 }
 
-// GET /api/reviews/:reviewId/comments — javno.
-async function getAllForReview(req, res) {
+// GET /api/reviews/:reviewId/comments
+async function getAllForReview(
+  req,
+  res
+) {
   try {
-    const review = await reviewModel.findById(req.params.reviewId);
+    const review =
+      await reviewModel.findById(
+        req.params.reviewId
+      );
+
     if (!review) {
-      return res.status(404).json({ error: 'Recenzija ne postoji' });
+      return res.status(404).json({
+        error:
+          'Recenzija ne postoji',
+      });
     }
-    const comments = await commentModel.findAllForReview(req.params.reviewId);
-    res.json({ comments });
+
+    const comments =
+      await commentModel
+        .findAllForReview(
+          req.params.reviewId
+        );
+
+    return res.json({
+      comments,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
+
+    return res.status(500).json({
+      error:
+        'Internal Server Error',
+    });
   }
 }
 
-// PUT /api/comments/:id — samo vlasnik.
+// PUT /api/comments/:id
 async function update(req, res) {
   try {
-    const { content } = req.body;
-    if (!content || !content.trim()) {
-      return res.status(400).json({ error: 'content je obavezan' });
-    }
-    if (content.length > MAX_COMMENT_LENGTH) {
-      return res.status(400).json({ error: `content ne sme biti duži od ${MAX_COMMENT_LENGTH} karaktera` });
+    const { content } =
+      req.body;
+
+    const validationError =
+      validateComment(content);
+
+    if (validationError) {
+      return res.status(400).json({
+        error: validationError,
+      });
     }
 
-    const existing = await commentModel.findById(req.params.id);
+    const existing =
+      await commentModel.findById(
+        req.params.id
+      );
+
     if (!existing) {
-      return res.status(404).json({ error: 'Komentar ne postoji' });
-    }
-    if (existing.user_id !== req.userId) {
-      return res.status(403).json({ error: 'Nemaš pravo da menjaš tuđ komentar' });
+      return res.status(404).json({
+        error:
+          'Komentar ne postoji',
+      });
     }
 
-    const updated = await commentModel.update(req.params.id, content.trim());
-    res.json({ comment: updated });
+    if (
+      existing.user_id !==
+      req.userId
+    ) {
+      return res.status(403).json({
+        error:
+          'Nemaš pravo da menjaš tuđ komentar',
+      });
+    }
+
+    const updated =
+      await commentModel.update(
+        req.params.id,
+        content.trim()
+      );
+
+    return res.json({
+      comment: updated,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
+
+    return res.status(500).json({
+      error:
+        'Internal Server Error',
+    });
   }
 }
 
-// DELETE /api/comments/:id — samo vlasnik.
+// DELETE /api/comments/:id
 async function remove(req, res) {
   try {
-    const existing = await commentModel.findById(req.params.id);
+    const existing =
+      await commentModel.findById(
+        req.params.id
+      );
+
     if (!existing) {
-      return res.status(404).json({ error: 'Komentar ne postoji' });
-    }
-    if (existing.user_id !== req.userId) {
-      return res.status(403).json({ error: 'Nemaš pravo da brišeš tuđ komentar' });
+      return res.status(404).json({
+        error:
+          'Komentar ne postoji',
+      });
     }
 
-    await commentModel.remove(req.params.id);
-    res.json({ message: 'Komentar obrisan' });
+    if (
+      existing.user_id !==
+      req.userId
+    ) {
+      return res.status(403).json({
+        error:
+          'Nemaš pravo da brišeš tuđ komentar',
+      });
+    }
+
+    await commentModel.remove(
+      req.params.id
+    );
+
+    return res.json({
+      message:
+        'Komentar obrisan',
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
+
+    return res.status(500).json({
+      error:
+        'Internal Server Error',
+    });
   }
 }
 

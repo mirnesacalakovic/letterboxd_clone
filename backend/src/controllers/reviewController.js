@@ -42,7 +42,7 @@ async function create(req, res) {
   try {
     const { movieId, content, isSpoiler, tags, rating } = req.body;
 
-    if (!movieId || !content || !content.trim()) {
+    if (!movieId || !content?.trim()) {
       return res.status(400).json({ error: 'movieId i content su obavezni' });
     }
     if (content.length > MAX_REVIEW_LENGTH) {
@@ -190,6 +190,17 @@ async function unlike(req, res) {
   }
 }
 
+// GET /api/users/:id/reviews — javno, sve recenzije JEDNOG korisnika.
+async function getReviewsForUser(req, res) {
+  try {
+    const reviews = await reviewModel.findAllForUser(req.params.id);
+    res.json({ reviews });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+}
+
 module.exports = {
   create,
   getById,
@@ -197,4 +208,5 @@ module.exports = {
   remove,
   like,
   unlike,
+  getReviewsForUser,
 };

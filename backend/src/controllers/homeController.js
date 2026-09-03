@@ -1,19 +1,37 @@
 const homeModel = require('../models/homeModel');
 
-// GET /api/home — sve tri sekcije se učitavaju paralelno (Promise.all),
-// nema razloga da čekaju jedna drugu jer su nezavisni upiti.
+// GET /api/home
+// Everything needed by all four Home tabs is loaded in parallel so switching
+// Films / Reviews / Lists / Journal does not trigger a stack of extra requests.
 async function getHome(req, res) {
   try {
-    const [popularThisWeek, newFromFriends, popularWithFriends] = await Promise.all([
-      homeModel.getPopularThisWeek(10),
+    const [
+      popularThisWeek,
+      newFromFriends,
+      popularWithFriends,
+      popularReviews,
+      popularLists,
+    ] = await Promise.all([
+      homeModel.getPopularThisWeek(12),
       homeModel.getNewFromFriends(req.userId, 20),
-      homeModel.getPopularWithFriends(req.userId, 10),
+      homeModel.getPopularWithFriends(req.userId, 12),
+      homeModel.getPopularReviews(20),
+      homeModel.getPopularLists(20),
     ]);
 
-    res.json({ popularThisWeek, newFromFriends, popularWithFriends });
+    return res.json({
+      popularThisWeek,
+      newFromFriends,
+      popularWithFriends,
+      popularReviews,
+      popularLists,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
+
+    return res.status(500).json({
+      error: 'Internal Server Error',
+    });
   }
 }
 

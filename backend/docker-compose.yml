@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: letterboxd_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: letterboxd_clone
+    ports:
+      - "5432:5432"
+    volumes:
+      - letterboxd_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  letterboxd_postgres_data:

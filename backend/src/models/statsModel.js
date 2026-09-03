@@ -62,11 +62,26 @@ async function getUserStats(userId, year) {
     monthlyBreakdown = monthlyResult.rows;
   }
 
+  // Raspodela ocena (0.5 - 5.0, korak 0.5) — koristi se za histogram
+  // na profilu (isti obrazac kao pravi Letterboxd "ratings" bar ispod
+  // Recent activity). Namerno ODVOJENO od yearFilter — histogram na
+  // profilu je uvek za sva vremena, bez obzira na ?year filter ostatka
+  // stats odgovora.
+  const distributionResult = await pool.query(
+    `SELECT rating, COUNT(*) AS count
+     FROM ratings
+     WHERE user_id = $1
+     GROUP BY rating
+     ORDER BY rating ASC`,
+    [userId]
+  );
+
   return {
     summary: summaryResult.rows[0],
     topGenres: topGenreResult.rows,
     topDirectors: topDirectorResult.rows,
     monthlyBreakdown,
+    ratingsDistribution: distributionResult.rows,
   };
 }
 

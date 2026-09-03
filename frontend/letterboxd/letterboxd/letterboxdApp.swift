@@ -1,17 +1,13 @@
-//
-//  letterboxdApp.swift
-//  letterboxd
-//
-//  Created by Mirnesa Calakovic on 2. 9. 2026..
-//
-
 import SwiftUI
 
 @main
-struct letterboxdApp: App {
+struct LetterboxdApp: App {
+    @StateObject private var authViewModel = AuthViewModel()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(authViewModel)
         }
     }
 }

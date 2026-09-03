@@ -1,5 +1,9 @@
-node_modules/ 
+node_modules/
 .env
 generate_real_seed.py
 generated_real_seed/
 PROGRESS.md
+
+# Runtime-uploaded profile images
+uploads/avatars/*
+!uploads/avatars/.gitkeep
