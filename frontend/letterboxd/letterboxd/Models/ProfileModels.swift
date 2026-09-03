@@ -113,6 +113,10 @@ struct ListsResponse: Decodable {
     let lists: [MovieListSummary]
 }
 
+struct MovieListEnvelope: Decodable {
+    let list: MovieListSummary
+}
+
 // MARK: - Likes (samo brojimo, ne treba nam sadržaj svakog lajka)
 
 struct EmptyJSONObject: Decodable {}

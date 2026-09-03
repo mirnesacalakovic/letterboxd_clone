@@ -29,6 +29,7 @@ struct ProfileSectionView: View {
     @State private var watchlist: [WatchlistItem] = []
     @State private var likes: [LikedMovieItem] = []
     @State private var people: [ProfilePerson] = []
+    @State private var showCreateList = false
 
     var body: some View {
         ZStack {
@@ -50,6 +51,24 @@ struct ProfileSectionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbarBackground(AppTheme.background, for: .navigationBar)
+        .toolbar {
+            if section == .lists && isOwnProfile {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showCreateList = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .foregroundStyle(.white)
+                    }
+                    .accessibilityLabel("Create list")
+                }
+            }
+        }
+        .sheet(isPresented: $showCreateList) {
+            ListEditorView(mode: .create) {
+                Task { await reloadLists() }
+            }
+        }
         .task { await load() }
     }
 
@@ -141,7 +160,13 @@ struct ProfileSectionView: View {
                 )
             } else {
                 ForEach(lists) { list in
-                    ProfileListPreviewRow(list: list)
+                    ProfileListPreviewRow(
+                        list: list,
+                        canEdit: isOwnProfile,
+                        onChanged: {
+                            Task { await reloadLists() }
+                        }
+                    )
                 }
             }
         }
@@ -236,6 +261,17 @@ struct ProfileSectionView: View {
         }
     }
 
+    @MainActor
+    private func reloadLists() async {
+        guard section == .lists else { return }
+        do {
+            lists = try await UserService.shared.fetchLists(userId: userId, isOwnProfile: isOwnProfile)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func load() async {
         guard loading else { return }
         do {
@@ -273,8 +309,24 @@ struct ProfileSectionView: View {
 struct MovieListDetailView: View {
     let listId: Int
     let title: String
+    let canEdit: Bool
+    let onChanged: (() -> Void)?
+
     @State private var detail: MovieListDetail?
     @State private var errorMessage: String?
+    @State private var showEditor = false
+
+    init(
+        listId: Int,
+        title: String,
+        canEdit: Bool = false,
+        onChanged: (() -> Void)? = nil
+    ) {
+        self.listId = listId
+        self.title = title
+        self.canEdit = canEdit
+        self.onChanged = onChanged
+    }
 
     var body: some View {
         ZStack {
@@ -283,14 +335,31 @@ struct MovieListDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         if let description = detail.description, !description.isEmpty {
-                            Text(description).foregroundStyle(AppTheme.secondaryText)
+                            Text(description)
+                                .foregroundStyle(AppTheme.secondaryText)
                         }
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 95), spacing: 10)], spacing: 14) {
-                            ForEach(detail.movies) { item in
-                                NavigationLink(destination: MovieDetailView(movie: item.asMovie)) {
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        PosterView(url: item.posterUrl, width: 105, height: 157)
-                                        Text(item.title).font(.caption.bold()).foregroundStyle(.white).lineLimit(1)
+
+                        if detail.movies.isEmpty {
+                            EmptyStateView(
+                                icon: "film",
+                                title: "No films yet",
+                                subtitle: canEdit ? "Tap Edit to add films to this list." : "This list does not contain any films yet."
+                            )
+                            .padding(.top, 40)
+                        } else {
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 95), spacing: 10)],
+                                spacing: 14
+                            ) {
+                                ForEach(detail.movies) { item in
+                                    NavigationLink(destination: MovieDetailView(movie: item.asMovie)) {
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            PosterView(url: item.posterUrl, width: 105, height: 157)
+                                            Text(item.title)
+                                                .font(.caption.bold())
+                                                .foregroundStyle(.white)
+                                                .lineLimit(1)
+                                        }
                                     }
                                 }
                             }
@@ -299,16 +368,59 @@ struct MovieListDetailView: View {
                     .padding()
                 }
             } else if let errorMessage {
-                EmptyStateView(icon: "exclamationmark.triangle", title: "Couldn’t load list", subtitle: errorMessage).padding()
+                EmptyStateView(
+                    icon: "exclamationmark.triangle",
+                    title: "Couldn’t load list",
+                    subtitle: errorMessage
+                )
+                .padding()
             } else {
                 ProgressView().tint(AppTheme.green)
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(detail?.name ?? title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbarBackground(AppTheme.background, for: .navigationBar)
+        .toolbar {
+            if canEdit, detail != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Edit") {
+                        showEditor = true
+                    }
+                    .fontWeight(.semibold)
+                    .foregroundStyle(AppTheme.green)
+                }
+            }
+        }
+        .sheet(isPresented: $showEditor) {
+            if let detail {
+                ListEditorView(mode: .edit(listId: listId, detail: detail)) {
+                    Task {
+                        await reload()
+                        onChanged?()
+                    }
+                }
+            }
+        }
         .task {
-            do { detail = try await UserService.shared.fetchListDetail(id: listId) }
-            catch { errorMessage = error.localizedDescription }
+            if detail == nil {
+                await reload()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .listsDidChange)) { _ in
+            guard canEdit else { return }
+            Task { await reload() }
+        }
+    }
+
+    @MainActor
+    private func reload() async {
+        do {
+            detail = try await UserService.shared.fetchListDetail(id: listId)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

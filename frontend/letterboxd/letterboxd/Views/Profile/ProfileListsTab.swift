@@ -22,15 +22,29 @@ struct ProfileListsTab: View {
 
 struct ProfileListPreviewRow: View {
     let list: MovieListSummary
+    let canEdit: Bool
+    let onChanged: (() -> Void)?
 
     @State private var detail: MovieListDetail?
     @State private var didLoad = false
+
+    init(
+        list: MovieListSummary,
+        canEdit: Bool = false,
+        onChanged: (() -> Void)? = nil
+    ) {
+        self.list = list
+        self.canEdit = canEdit
+        self.onChanged = onChanged
+    }
 
     var body: some View {
         NavigationLink {
             MovieListDetailView(
                 listId: list.id,
-                title: list.name
+                title: list.name,
+                canEdit: canEdit,
+                onChanged: onChanged
             )
         } label: {
             VStack(alignment: .leading, spacing: 11) {
@@ -76,6 +90,11 @@ struct ProfileListPreviewRow: View {
         .buttonStyle(.plain)
         .task {
             await loadDetail()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .listsDidChange)) { _ in
+            guard canEdit else { return }
+            didLoad = false
+            Task { await loadDetail() }
         }
 
         Divider()

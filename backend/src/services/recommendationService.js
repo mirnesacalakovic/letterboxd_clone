@@ -1,119 +1,350 @@
 const recommendationModel = require('../models/recommendationModel');
-const { buildFeatureVector, cosineSimilarity, addWeightedVector } = require('./similarityUtils');
+const {
+  buildFeatureVector,
+  cosineSimilarity,
+  addWeightedVector,
+} = require('./similarityUtils');
 
 const MIN_RATINGS_FOR_PERSONALIZATION = 5;
-const TOP_N_RECOMMENDATIONS = 10;
+const TOP_N_RECOMMENDATIONS = 12;
 
-// Za generisanje "reason" objašnjenja ne poredimo kandidata sa SVIM
-// filmovima koje je korisnik ocenio ≥4.0 (moglo bi ih biti stotine) —
-// ograničavamo se na njegovih top N najviše ocenjenih, da poređenje
-// ostane brzo bez obzira koliko korisnik ima ocena ukupno.
 const REASON_SOURCE_LIMIT = 20;
-// Koliko sličnih filmova pamtimo po kandidatu (pre nego što izaberemo
-// koliko od njih ide u tekst objašnjenja).
 const REASON_TOP_MATCHES = 3;
-// Koliko naslova stvarno ulazi u tekst objašnjenja korisniku.
 const REASON_TITLES_IN_TEXT = 2;
 
-// Pravi tekst objašnjenja od liste najsličnijih filmova (već sortirane
-// opadajuće po similarity). Rešava nekoliko edge case-ova:
-// - manje matcheva nego što bismo želeli (korisnik ima malo ocena)
-// - similarity 0 za sve (nema zajedničkog signala → generički tekst)
-// - duplikati naslova (dva različita filma sa istim imenom u bazi)
+// The detailed Recommendations screen groups suggestions around up to six
+// films the member rated highly, with up to five suggestions in each group.
+const GROUP_SOURCE_LIMIT = 6;
+const GROUP_MOVIES_LIMIT = 5;
+
 function buildReasonText(topMatches) {
-  const meaningfulMatches = topMatches.filter((m) => m.similarity > 0);
+  const meaningfulMatches = topMatches.filter(
+    (match) => match.similarity > 0
+  );
 
   if (meaningfulMatches.length === 0) {
-    return 'Na osnovu tvog opšteg ukusa';
+    return 'Based on your overall taste';
   }
 
   const uniqueTitles = [];
+
   for (const match of meaningfulMatches) {
     if (!uniqueTitles.includes(match.movie.title)) {
       uniqueTitles.push(match.movie.title);
     }
-    if (uniqueTitles.length === REASON_TITLES_IN_TEXT) break;
+
+    if (uniqueTitles.length === REASON_TITLES_IN_TEXT) {
+      break;
+    }
   }
 
   if (uniqueTitles.length === 1) {
-    return `Zato što ti se svideo film "${uniqueTitles[0]}"`;
+    return `Because you liked "${uniqueTitles[0]}"`;
   }
-  return `Zato što ti se svideli filmovi "${uniqueTitles.join('" i "')}"`;
+
+  return `Because you liked "${uniqueTitles.join('" and "')}"`;
+}
+
+function toRecommendation(movie, score, reason) {
+  return {
+    movieId: movie.id,
+    title: movie.title,
+    posterUrl: movie.poster_url,
+    score:
+      score === null
+        ? null
+        : Math.round(score * 100) / 100,
+    reason,
+  };
+}
+
+function buildRecommendationGroups(
+  sourceMovies,
+  candidates
+) {
+  return sourceMovies
+    .slice(0, GROUP_SOURCE_LIMIT)
+    .map(({ movie, vector }) => {
+      const reason =
+        `Because you liked "${movie.title}"`;
+
+      const recommendations = candidates
+        .map((candidate) => {
+          const candidateVector =
+            buildFeatureVector(candidate);
+
+          const similarity =
+            cosineSimilarity(
+              vector,
+              candidateVector
+            );
+
+          return {
+            candidate,
+            similarity,
+          };
+        })
+        .sort((a, b) => {
+          if (
+            b.similarity !==
+            a.similarity
+          ) {
+            return (
+              b.similarity -
+              a.similarity
+            );
+          }
+
+          return a.candidate.title.localeCompare(
+            b.candidate.title
+          );
+        })
+        .slice(
+          0,
+          GROUP_MOVIES_LIMIT
+        )
+        .map(
+          ({
+            candidate,
+            similarity,
+          }) =>
+            toRecommendation(
+              candidate,
+              similarity,
+              reason
+            )
+        );
+
+      return {
+        sourceMovieId: movie.id,
+        sourceTitle: movie.title,
+        recommendations,
+      };
+    })
+    .filter(
+      (group) =>
+        group.recommendations.length > 0
+    );
 }
 
 async function getRecommendations(userId) {
-  const ratingCount = await recommendationModel.getUserRatingCount(userId);
+  const ratingCount =
+    await recommendationModel
+      .getUserRatingCount(userId);
 
-  // --- Cold start: nema dovoljno podataka za pouzdan profil ---
-  if (ratingCount < MIN_RATINGS_FOR_PERSONALIZATION) {
-    const popular = await recommendationModel.getPopularMovies(TOP_N_RECOMMENDATIONS);
+  // Cold start: until there are enough ratings,
+  // show well-rated popular films.
+  if (
+    ratingCount <
+    MIN_RATINGS_FOR_PERSONALIZATION
+  ) {
+    const popular =
+      await recommendationModel
+        .getPopularMovies(
+          TOP_N_RECOMMENDATIONS
+        );
+
     return {
       coldStart: true,
-      ratingsNeeded: MIN_RATINGS_FOR_PERSONALIZATION - ratingCount,
-      recommendations: popular.map((m) => ({
-        movieId: m.id,
-        title: m.title,
-        posterUrl: m.poster_url,
-        score: null,
-        reason: 'Popularan film među svim korisnicima',
-      })),
+
+      ratingsNeeded:
+        MIN_RATINGS_FOR_PERSONALIZATION -
+        ratingCount,
+
+      recommendations:
+        popular.map((movie) =>
+          toRecommendation(
+            movie,
+            null,
+            'Popular with members'
+          )
+        ),
+
+      groups: [],
     };
   }
 
-  // --- Personalizovane preporuke ---
-  const highRatedMovies = await recommendationModel.getUserHighRatedMoviesWithFeatures(userId);
-  const candidates = await recommendationModel.getCandidateMoviesWithFeatures(userId);
+  const highRatedMovies =
+    await recommendationModel
+      .getUserHighRatedMoviesWithFeatures(
+        userId
+      );
 
-  // Vektor svakog visoko ocenjenog filma, zapamćen posebno (ne samo
-  // zbir) da bismo kasnije mogli da objasnimo ZAŠTO je nešto preporučeno.
-  const ratedVectors = highRatedMovies.map((movie) => ({
-    movie,
-    vector: buildFeatureVector(movie),
-  }));
+  const candidates =
+    await recommendationModel
+      .getCandidateMoviesWithFeatures(
+        userId
+      );
 
-  // Profil korisnika = zbir vektora ponderisan ocenom (viša ocena =
-  // veći uticaj na profil).
-  const userProfile = new Map();
-  ratedVectors.forEach(({ movie, vector }) => {
-    addWeightedVector(userProfile, vector, movie.rating);
-  });
-
-  // Za "reason" objašnjenje koristimo samo korisnikove top N najviše
-  // ocenjenih filmova (ne sve) — edge case: ako korisnik ima npr. 200
-  // ocena ≥4.0, ne želimo da poredimo svaki kandidat sa svih 200.
-  const reasonSourceMovies = [...ratedVectors]
-    .sort((a, b) => b.movie.rating - a.movie.rating)
-    .slice(0, REASON_SOURCE_LIMIT);
-
-  const scored = candidates.map((candidate) => {
-    const candidateVector = buildFeatureVector(candidate);
-    const score = cosineSimilarity(userProfile, candidateVector);
-
-    // Sličnost sa svakim od "izvornih" filmova, zadržavamo top N —
-    // ne samo jedan — da objašnjenje bude robusnije (npr. ako je top
-    // film po similarity-ju slučajno "prazan" pogodak zbog retkog
-    // zajedničkog tokena, imamo rezervu iz drugog i trećeg mesta).
-    const allMatches = reasonSourceMovies.map(({ movie, vector }) => ({
-      movie,
-      similarity: cosineSimilarity(vector, candidateVector),
-    }));
-    allMatches.sort((a, b) => b.similarity - a.similarity);
-    const topMatches = allMatches.slice(0, REASON_TOP_MATCHES);
+  // The member has enough ratings, but none
+  // are strong positive signals.
+  if (
+    highRatedMovies.length === 0
+  ) {
+    const popular =
+      await recommendationModel
+        .getPopularMovies(
+          TOP_N_RECOMMENDATIONS
+        );
 
     return {
-      movieId: candidate.id,
-      title: candidate.title,
-      posterUrl: candidate.poster_url,
-      score: Math.round(score * 100) / 100,
-      reason: buildReasonText(topMatches),
+      coldStart: false,
+      ratingsNeeded: 0,
+
+      recommendations:
+        popular.map((movie) =>
+          toRecommendation(
+            movie,
+            null,
+            'Popular with members'
+          )
+        ),
+
+      groups: [],
     };
+  }
+
+  const ratedVectors =
+    highRatedMovies.map(
+      (movie) => ({
+        movie,
+        vector:
+          buildFeatureVector(movie),
+      })
+    );
+
+  // User profile:
+  // a film rated 5 stars has a larger
+  // influence than a film rated 4 stars.
+  const userProfile =
+    new Map();
+
+  ratedVectors.forEach(
+    ({ movie, vector }) => {
+      addWeightedVector(
+        userProfile,
+        vector,
+        movie.rating
+      );
+    }
+  );
+
+  const reasonSourceMovies = [
+    ...ratedVectors,
+  ]
+    .sort((a, b) => {
+      if (
+        b.movie.rating !==
+        a.movie.rating
+      ) {
+        return (
+          b.movie.rating -
+          a.movie.rating
+        );
+      }
+
+      return a.movie.title.localeCompare(
+        b.movie.title
+      );
+    })
+    .slice(
+      0,
+      REASON_SOURCE_LIMIT
+    );
+
+  const scored =
+    candidates.map(
+      (candidate) => {
+        const candidateVector =
+          buildFeatureVector(
+            candidate
+          );
+
+        const score =
+          cosineSimilarity(
+            userProfile,
+            candidateVector
+          );
+
+        const topMatches =
+          reasonSourceMovies
+            .map(
+              ({
+                movie,
+                vector,
+              }) => ({
+                movie,
+
+                similarity:
+                  cosineSimilarity(
+                    vector,
+                    candidateVector
+                  ),
+              })
+            )
+            .sort(
+              (a, b) =>
+                b.similarity -
+                a.similarity
+            )
+            .slice(
+              0,
+              REASON_TOP_MATCHES
+            );
+
+        return toRecommendation(
+          candidate,
+          score,
+          buildReasonText(
+            topMatches
+          )
+        );
+      }
+    );
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
+
+    return a.title.localeCompare(
+      b.title
+    );
   });
 
-  scored.sort((a, b) => b.score - a.score);
+  const groupSources = [
+    ...ratedVectors,
+  ].sort((a, b) => {
+    if (
+      b.movie.rating !==
+      a.movie.rating
+    ) {
+      return (
+        b.movie.rating -
+        a.movie.rating
+      );
+    }
+
+    return a.movie.title.localeCompare(
+      b.movie.title
+    );
+  });
 
   return {
     coldStart: false,
-    recommendations: scored.slice(0, TOP_N_RECOMMENDATIONS),
+    ratingsNeeded: 0,
+
+    recommendations:
+      scored.slice(
+        0,
+        TOP_N_RECOMMENDATIONS
+      ),
+
+    groups:
+      buildRecommendationGroups(
+        groupSources,
+        candidates
+      ),
   };
 }
 

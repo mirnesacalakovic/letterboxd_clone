@@ -18,13 +18,14 @@ final class MovieService {
         return response.movies
     }
 
-    func search(_ query: String) async throws -> [Movie] {
+    func search(_ query: String, limit: Int = 20) async throws -> [Movie] {
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             return []
         }
 
+        let safeLimit = min(max(limit, 1), 200)
         let response: MoviesResponse = try await APIClient.shared.request(
-            path: "/movies/search?q=\(encoded)",
+            path: "/movies/search?q=\(encoded)&limit=\(safeLimit)&offset=0",
             method: .get,
             requiresAuth: false
         )

@@ -56,14 +56,24 @@ struct ProfileView: View {
                 Button("Log out", role: .destructive) { authViewModel.logout() }
                 Button("Cancel", role: .cancel) { }
             }
-            .refreshable { await vm.loadAll() }
+            .refreshable {
+                await vm.loadAll()
+                await vm.loadFollowState(currentUserId: authViewModel.currentUser?.id)
+            }
             .task {
                 await vm.loadAll()
+                await vm.loadFollowState(currentUserId: authViewModel.currentUser?.id)
             }
             .onReceive(NotificationCenter.default.publisher(for: .diaryDidChange)) { _ in
-                Task {
-                    await vm.loadAll()
-                }
+                Task { await vm.loadAll() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .listsDidChange)) { _ in
+                guard vm.isOwnProfile else { return }
+                Task { await vm.loadAll() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .followRelationshipDidChange)) { _ in
+                guard vm.isOwnProfile else { return }
+                Task { await vm.loadAll() }
             }
         }
     }

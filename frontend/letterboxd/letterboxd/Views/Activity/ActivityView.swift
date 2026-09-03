@@ -3,6 +3,7 @@ import SwiftUI
 struct ActivityView: View {
     @EnvironmentObject private var authViewModel: AuthViewModel
     @StateObject private var vm = ActivityViewModel()
+    @State private var showFilters = false
 
     var body: some View {
         NavigationStack {
@@ -26,9 +27,26 @@ struct ActivityView: View {
             .toolbarBackground(AppTheme.background, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Image(systemName: "slider.horizontal.3")
-                        .foregroundStyle(AppTheme.secondaryText)
+                    Button {
+                        showFilters = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "slider.horizontal.3")
+                                .foregroundStyle(vm.hasActiveFilters ? AppTheme.green : AppTheme.secondaryText)
+
+                            if vm.hasActiveFilters {
+                                Circle()
+                                    .fill(AppTheme.green)
+                                    .frame(width: 6, height: 6)
+                                    .offset(x: 3, y: -3)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("Filter activity")
                 }
+            }
+            .sheet(isPresented: $showFilters) {
+                ActivityFilterSheet(vm: vm)
             }
             .task { await vm.load() }
             .refreshable { await vm.load() }
@@ -88,10 +106,12 @@ struct ActivityView: View {
             Spacer()
         } else if vm.activities.isEmpty {
             emptyState
+        } else if vm.filteredActivities.isEmpty {
+            filteredEmptyState
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(vm.activities) { activity in
+                    ForEach(vm.filteredActivities) { activity in
                         ActivityRow(
                             activity: activity,
                             currentUserId: authViewModel.currentUser?.id
@@ -102,6 +122,28 @@ struct ActivityView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var filteredEmptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 42))
+                .foregroundStyle(AppTheme.secondaryText)
+            Text("No matching activity")
+                .font(.headline)
+                .foregroundStyle(.white)
+            Text("Try changing or clearing your activity filters.")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.secondaryText)
+                .multilineTextAlignment(.center)
+            Button("Clear filters") {
+                vm.clearFilters()
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AppTheme.green)
+            Spacer()
         }
     }
 
@@ -152,6 +194,76 @@ struct ActivityView: View {
         case .incoming:
             return "New followers, comments and likes on your reviews will appear here."
         }
+    }
+}
+
+private struct ActivityFilterSheet: View {
+    @ObservedObject var vm: ActivityViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppTheme.background.ignoresSafeArea()
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Choose which kinds of activity you want to see. Filters apply to the current tab.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
+
+                    ForEach(vm.availableFilters) { filter in
+                        Button {
+                            vm.toggleFilter(filter)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: filter.icon)
+                                    .frame(width: 24)
+                                    .foregroundStyle(AppTheme.secondaryText)
+
+                                Text(filter.title)
+                                    .foregroundStyle(.white)
+
+                                Spacer()
+
+                                Image(systemName: vm.activeFilters.contains(filter) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(vm.activeFilters.contains(filter) ? AppTheme.green : AppTheme.secondaryText)
+                            }
+                            .padding(.horizontal, 18)
+                            .frame(minHeight: 52)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider()
+                            .overlay(AppTheme.cardBackground)
+                            .padding(.leading, 54)
+                    }
+
+                    Spacer()
+                }
+            }
+            .navigationTitle("Activity filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(AppTheme.background, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if vm.hasActiveFilters {
+                        Button("Clear") { vm.clearFilters() }
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                        .foregroundStyle(AppTheme.green)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

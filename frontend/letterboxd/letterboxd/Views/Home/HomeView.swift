@@ -10,6 +10,7 @@ private enum HomeTab: Hashable {
 struct HomeView: View {
     @State private var selectedTab: HomeTab = .films
     @State private var home: HomeResponse?
+    @State private var recommendations: HomeRecommendationResponse?
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -130,6 +131,10 @@ struct HomeView: View {
                     movies: home.popularThisWeek,
                     destinationTitle: "Popular this week"
                 )
+
+                if let recommendations, !recommendations.recommendations.isEmpty {
+                    HomeRecommendationSection(response: recommendations)
+                }
 
                 HomeFriendsSection(
                     title: "New from friends",
@@ -336,6 +341,10 @@ struct HomeView: View {
 
         do {
             home = try await HomeService.shared.fetchHome()
+
+            // Recommendations are a bonus personalized section. A temporary
+            // failure here should never hide the rest of Home.
+            recommendations = try? await HomeService.shared.fetchRecommendations()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -343,6 +352,177 @@ struct HomeView: View {
 }
 
 // MARK: - Films tab sections
+
+private struct HomeRecommendationSection: View {
+    let response: HomeRecommendationResponse
+
+    private var subtitle: String {
+        if response.coldStart {
+            if let ratingsNeeded = response.ratingsNeeded, ratingsNeeded > 0 {
+                return "Rate \(ratingsNeeded) more \(ratingsNeeded == 1 ? "film" : "films") to personalize these picks"
+            }
+            return "Popular picks while we learn your taste"
+        }
+        return "Picked from the films you rated highly"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NavigationLink {
+                HomeRecommendationsView(response: response)
+            } label: {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 7) {
+                            Image(systemName: "sparkles")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AppTheme.green)
+
+                            Text("Recommended for you")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.white)
+                        }
+
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.white.opacity(0.35))
+                }
+                .padding(.horizontal, 18)
+            }
+            .buttonStyle(.plain)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 10) {
+                    ForEach(Array(response.recommendations.prefix(8))) { recommendation in
+                        NavigationLink {
+                            MovieDetailView(movie: recommendation.asMovie)
+                        } label: {
+                            PosterView(
+                                url: recommendation.posterUrl,
+                                width: 84,
+                                height: 126
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 18)
+            }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+    }
+}
+
+private struct HomeRecommendationsView: View {
+    let response: HomeRecommendationResponse
+
+    var body: some View {
+        ZStack {
+            AppTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles")
+                                .foregroundStyle(AppTheme.green)
+
+                            Text("Recommended for you")
+                                .font(.title2.weight(.bold))
+                                .foregroundStyle(.white)
+                        }
+
+                        Text(introText)
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .lineSpacing(3)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
+
+                    if response.coldStart || response.groups.isEmpty {
+                        recommendationGroup(
+                            title: response.coldStart ? "Popular with members" : "Based on your taste",
+                            movies: Array(response.recommendations.prefix(10))
+                        )
+                    } else {
+                        ForEach(Array(response.groups.prefix(6))) { group in
+                            recommendationGroup(
+                                title: "Because you liked \(group.sourceTitle)",
+                                movies: Array(group.recommendations.prefix(5))
+                            )
+                        }
+                    }
+                }
+                .padding(.bottom, 30)
+            }
+        }
+        .navigationTitle("Recommendations")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbarBackground(Color.black, for: .navigationBar)
+    }
+
+    private var introText: String {
+        if response.coldStart {
+            if let needed = response.ratingsNeeded, needed > 0 {
+                return "Rate \(needed) more \(needed == 1 ? "film" : "films") and your recommendations will become personalized."
+            }
+            return "Popular films while we learn your taste."
+        }
+
+        return "Suggestions are grouped around films you rated highly."
+    }
+
+    @ViewBuilder
+    private func recommendationGroup(
+        title: String,
+        movies: [HomeRecommendationItem]
+    ) -> some View {
+        if !movies.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 10) {
+                        ForEach(movies) { recommendation in
+                            NavigationLink {
+                                MovieDetailView(movie: recommendation.asMovie)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    PosterView(
+                                        url: recommendation.posterUrl,
+                                        width: 92,
+                                        height: 138
+                                    )
+
+                                    Text(recommendation.title)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(2)
+                                        .frame(width: 92, alignment: .leading)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                }
+            }
+        }
+    }
+}
 
 private struct HomePosterSection: View {
     let title: String
@@ -1035,6 +1215,71 @@ private struct HomeStars: View {
 
 // MARK: - Home API models
 
+private struct HomeRecommendationResponse: Decodable {
+    let coldStart: Bool
+    let ratingsNeeded: Int?
+    let recommendations: [HomeRecommendationItem]
+    let groups: [HomeRecommendationGroup]
+
+    enum CodingKeys: String, CodingKey {
+        case coldStart, ratingsNeeded, recommendations, groups
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        coldStart = (try? c.decode(Bool.self, forKey: .coldStart)) ?? false
+        ratingsNeeded = try? c.decodeIfPresent(Int.self, forKey: .ratingsNeeded)
+        recommendations = (try? c.decode([HomeRecommendationItem].self, forKey: .recommendations)) ?? []
+        groups = (try? c.decode([HomeRecommendationGroup].self, forKey: .groups)) ?? []
+    }
+}
+
+private struct HomeRecommendationGroup: Decodable, Identifiable {
+    let sourceMovieId: Int
+    let sourceTitle: String
+    let recommendations: [HomeRecommendationItem]
+
+    var id: Int { sourceMovieId }
+
+    enum CodingKeys: String, CodingKey {
+        case sourceMovieId, sourceTitle, recommendations
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sourceMovieId = c.homeFlexibleInt(.sourceMovieId) ?? 0
+        sourceTitle = (try? c.decode(String.self, forKey: .sourceTitle)) ?? "A film you liked"
+        recommendations = (try? c.decode([HomeRecommendationItem].self, forKey: .recommendations)) ?? []
+    }
+}
+
+private struct HomeRecommendationItem: Decodable, Identifiable {
+    let movieId: Int
+    let title: String
+    let posterUrl: String?
+    let score: Double?
+    let reason: String
+
+    var id: Int { movieId }
+
+    enum CodingKeys: String, CodingKey {
+        case movieId, title, posterUrl, score, reason
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        movieId = c.homeFlexibleInt(.movieId) ?? 0
+        title = (try? c.decode(String.self, forKey: .title)) ?? "Untitled"
+        posterUrl = try? c.decodeIfPresent(String.self, forKey: .posterUrl)
+        score = c.homeFlexibleDouble(.score)
+        reason = (try? c.decode(String.self, forKey: .reason)) ?? "Recommended for you"
+    }
+
+    var asMovie: Movie {
+        Movie(id: movieId, title: title, posterUrl: posterUrl)
+    }
+}
+
 private struct HomeResponse: Decodable {
     let popularThisWeek: [HomeMovieItem]
     let newFromFriends: [HomeFriendActivity]
@@ -1279,6 +1524,14 @@ private final class HomeService {
     func fetchHome() async throws -> HomeResponse {
         try await APIClient.shared.request(
             path: "/home",
+            method: .get,
+            requiresAuth: true
+        )
+    }
+
+    func fetchRecommendations() async throws -> HomeRecommendationResponse {
+        try await APIClient.shared.request(
+            path: "/recommendations",
             method: .get,
             requiresAuth: true
         )

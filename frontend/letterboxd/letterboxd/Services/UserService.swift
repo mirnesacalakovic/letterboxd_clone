@@ -5,6 +5,10 @@ private struct UserSearchResponse: Decodable {
     let users: [ProfilePerson]
 }
 
+private struct FavoriteMoviesEnvelope: Decodable {
+    let favoriteMovies: [FavoriteMovie]
+}
+
 // Svi pozivi vezani za profil ekran. Isti princip kao MovieService —
 // jedna klasa po domenu, sve prolazi kroz APIClient.
 final class UserService {
@@ -137,6 +141,56 @@ extension UserService {
         return response.list
     }
 
+    func createList(name: String, description: String, isPublic: Bool) async throws -> MovieListSummary {
+        struct Body: Encodable {
+            let name: String
+            let description: String
+            let isPublic: Bool
+        }
+
+        let response: MovieListEnvelope = try await APIClient.shared.request(
+            path: "/lists",
+            method: .post,
+            body: Body(name: name, description: description, isPublic: isPublic),
+            requiresAuth: true
+        )
+        return response.list
+    }
+
+    func updateList(id: Int, name: String, description: String, isPublic: Bool) async throws -> MovieListSummary {
+        struct Body: Encodable {
+            let name: String
+            let description: String
+            let isPublic: Bool
+        }
+
+        let response: MovieListEnvelope = try await APIClient.shared.request(
+            path: "/lists/\(id)",
+            method: .put,
+            body: Body(name: name, description: description, isPublic: isPublic),
+            requiresAuth: true
+        )
+        return response.list
+    }
+
+    func addMovie(listId: Int, movieId: Int) async throws {
+        struct IgnoreResponse: Decodable {}
+        let _: IgnoreResponse = try await APIClient.shared.request(
+            path: "/lists/\(listId)/movies/\(movieId)",
+            method: .post,
+            body: EmptyBody(),
+            requiresAuth: true
+        )
+    }
+
+    func removeMovie(listId: Int, movieId: Int) async throws {
+        let _: APIActionResponse = try await APIClient.shared.request(
+            path: "/lists/\(listId)/movies/\(movieId)",
+            method: .delete,
+            requiresAuth: true
+        )
+    }
+
     func updateProfile(id: Int, username: String, bio: String) async throws -> User {
         struct Body: Encodable {
             let username: String
@@ -149,6 +203,20 @@ extension UserService {
             requiresAuth: true
         )
         return response.user
+    }
+
+    func setFavorites(userId: Int, movieIds: [Int]) async throws -> [FavoriteMovie] {
+        struct Body: Encodable {
+            let movieIds: [Int]
+        }
+
+        let response: FavoriteMoviesEnvelope = try await APIClient.shared.request(
+            path: "/users/\(userId)/favorites",
+            method: .put,
+            body: Body(movieIds: movieIds),
+            requiresAuth: true
+        )
+        return response.favoriteMovies
     }
 
 
@@ -175,6 +243,31 @@ extension UserService {
             requiresAuth: false
         )
         return response.users
+    }
+
+
+    func isFollowing(currentUserId: Int, targetUserId: Int) async throws -> Bool {
+        let following = try await fetchFollowing(userId: currentUserId)
+        return following.contains { $0.id == targetUserId }
+    }
+
+    func follow(userId: Int) async throws {
+        struct IgnoreResponse: Decodable {}
+        let _: IgnoreResponse = try await APIClient.shared.request(
+            path: "/users/\(userId)/follow",
+            method: .post,
+            body: EmptyBody(),
+            requiresAuth: true
+        )
+    }
+
+    func unfollow(userId: Int) async throws {
+        struct IgnoreResponse: Decodable {}
+        let _: IgnoreResponse = try await APIClient.shared.request(
+            path: "/users/\(userId)/follow",
+            method: .delete,
+            requiresAuth: true
+        )
     }
 
     func uploadAvatar(id: Int, jpegData: Data) async throws -> User {

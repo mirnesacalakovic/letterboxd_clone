@@ -14,8 +14,12 @@ final class ProfileViewModel: ObservableObject {
     @Published var tagCount = 0
     @Published var ratingsDistribution: [RatingBucket] = []
     @Published var averageRating: Double?
+    @Published var isFollowing = false
+    @Published var isFollowLoading = false
     @Published var isLoading = false
     @Published var errorMessage: String?
+
+    private var currentUserId: Int?
 
     init(userId: Int, isOwnProfile: Bool) {
         self.userId = userId
@@ -23,9 +27,6 @@ final class ProfileViewModel: ObservableObject {
     }
 
     var recentActivity: [DiaryEntry] { Array(diaryEntries.prefix(4)) }
-
-    // "Diary" broj u statistici — endpoint nema total count, pa koristimo
-    // dužinu niza koji smo povukli (videti komentar u UserService).
     var diaryCount: Int { diaryEntries.count }
 
     func loadAll() async {
@@ -51,4 +52,55 @@ final class ProfileViewModel: ObservableObject {
         }
         isLoading = false
     }
+
+    func loadFollowState(currentUserId: Int?) async {
+        self.currentUserId = currentUserId
+        guard !isOwnProfile, let currentUserId, currentUserId != userId else {
+            isFollowing = false
+            return
+        }
+
+        do {
+            isFollowing = try await UserService.shared.isFollowing(
+                currentUserId: currentUserId,
+                targetUserId: userId
+            )
+        } catch {
+            // The rest of the public profile should remain usable even if the
+            // follow-state request fails temporarily.
+            isFollowing = false
+        }
+    }
+
+    func toggleFollow() async {
+        guard !isOwnProfile, currentUserId != nil, !isFollowLoading else { return }
+
+        isFollowLoading = true
+        errorMessage = nil
+        let wasFollowing = isFollowing
+
+        // Optimistic UI keeps the button responsive; a failed request is
+        // immediately rolled back.
+        isFollowing.toggle()
+
+        do {
+            if wasFollowing {
+                try await UserService.shared.unfollow(userId: userId)
+            } else {
+                try await UserService.shared.follow(userId: userId)
+            }
+
+            profile = try await UserService.shared.fetchProfile(id: userId)
+            NotificationCenter.default.post(name: .followRelationshipDidChange, object: nil)
+        } catch {
+            isFollowing = wasFollowing
+            errorMessage = error.localizedDescription
+        }
+
+        isFollowLoading = false
+    }
+}
+
+extension Notification.Name {
+    static let followRelationshipDidChange = Notification.Name("followRelationshipDidChange")
 }

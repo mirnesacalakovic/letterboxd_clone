@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SearchView: View {
     @StateObject private var vm = SearchViewModel()
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -12,60 +13,143 @@ struct SearchView: View {
                 VStack(spacing: 0) {
                     searchHeader
 
-                    if vm.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !vm.hasSearched {
-                        browseContent
+                    if vm.trimmedQuery.isEmpty {
+                        if searchFocused {
+                            activeSearchEmptyState
+                        } else {
+                            browseContent
+                        }
                     } else {
                         resultsContent
                     }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
+            // task(id:) is the live-search trigger. Every keystroke cancels
+            // the previous debounce task and starts a new one automatically.
+            .task(id: vm.query) {
+                await vm.liveSearch()
+            }
         }
     }
 
+    // MARK: - Search Header
+
     private var searchHeader: some View {
-        VStack(spacing: 18) {
-            Text("Search")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
+        VStack(spacing: 14) {
+            if !searchFocused && vm.query.isEmpty {
+                Text("Search")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.top, 4)
+            }
 
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(Color(hex: "#C6D3DF"))
+            HStack(spacing: 12) {
+                HStack(spacing: 9) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(searchFocused ? Color(hex: "#8EA5B8") : Color(hex: "#C6D3DF"))
 
-                TextField(
-                    "Find films, cast + crew, members, reviews…",
-                    text: $vm.query
-                )
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .foregroundStyle(.white)
-                .tint(AppTheme.blue)
-                .onSubmit {
-                    Task { await vm.search() }
+                    TextField(
+                        "",
+                        text: $vm.query,
+                        prompt: Text("Find films, cast + crew, members…")
+                            .foregroundStyle(Color(hex: "#9CB0C3"))
+                    )
+                    .focused($searchFocused)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    .foregroundStyle(searchFocused ? Color(hex: "#26384A") : .white)
+                    .tint(Color(hex: "#87A9C5"))
+                    .onSubmit {
+                        Task { await vm.searchImmediately() }
+                    }
+
+                    if !vm.query.isEmpty {
+                        Button {
+                            vm.clear()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 19))
+                                .foregroundStyle(Color(hex: "#8DA5B8"))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, 12)
+                .frame(height: 46)
+                .background(searchFocused ? Color(hex: "#D8D8DA") : Color(hex: "#607083"))
+                .clipShape(RoundedRectangle(cornerRadius: 11))
 
-                if !vm.query.isEmpty {
-                    Button {
+                if searchFocused {
+                    Button("Cancel") {
                         vm.clear()
+                        searchFocused = false
+                    }
+                    .font(.system(size: 17))
+                    .foregroundStyle(Color(hex: "#AABDCF"))
+                }
+            }
+            .padding(.horizontal, 18)
+
+            if searchFocused || !vm.query.isEmpty {
+                searchCategoryTabs
+            }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, searchFocused || !vm.query.isEmpty ? 12 : 18)
+        .background(Color.black)
+    }
+
+    private var searchCategoryTabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(SearchCategory.allCases) { category in
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            vm.selectedCategory = category
+                        }
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(Color.white.opacity(0.55))
+                        Text(category.title)
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(
+                                vm.selectedCategory == category
+                                    ? Color.white
+                                    : Color(hex: "#96A8B9")
+                            )
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .background(
+                                vm.selectedCategory == category
+                                    ? AppTheme.green
+                                    : Color.clear
+                            )
+                            .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 13)
-            .frame(height: 48)
-            .background(Color(hex: "#607083"))
-            .clipShape(RoundedRectangle(cornerRadius: 11))
             .padding(.horizontal, 18)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 18)
-        .background(Color.black)
+    }
+
+    private var activeSearchEmptyState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("SEARCH")
+                .font(.caption.weight(.semibold))
+                .tracking(1.5)
+                .foregroundStyle(AppTheme.secondaryText)
+
+            Text("Start typing to search \(vm.selectedCategory.title.lowercased()).")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.secondaryText)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.top, 32)
     }
 
     private var browseContent: some View {
@@ -252,9 +336,11 @@ struct SearchView: View {
         }
     }
 
+    // MARK: - Results
+
     @ViewBuilder
     private var resultsContent: some View {
-        if vm.isLoading {
+        if vm.isLoading && vm.rawMovies.isEmpty && vm.members.isEmpty {
             Spacer()
             ProgressView()
                 .tint(AppTheme.green)
@@ -268,39 +354,75 @@ struct SearchView: View {
             )
             .padding()
             Spacer()
-        } else if vm.movies.isEmpty && vm.members.isEmpty {
-            Spacer()
-            EmptyStateView(
-                icon: "magnifyingglass",
-                title: "No results",
-                subtitle: "Try another film, filmmaker, cast member or username."
-            )
-            .padding()
-            Spacer()
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if !vm.movies.isEmpty {
-                        SearchResultsHeading("FILMS, CAST + CREW")
+            ZStack(alignment: .top) {
+                selectedResults
 
-                        ForEach(vm.movies) { movie in
+                if vm.isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(AppTheme.green)
+                        .padding(.top, 8)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var selectedResults: some View {
+        switch vm.selectedCategory {
+        case .films:
+            if vm.films.isEmpty {
+                noResults("No film titles contain “\(vm.trimmedQuery)”.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(vm.films) { movie in
                             NavigationLink {
                                 MovieDetailView(movie: movie)
                             } label: {
-                                SearchMovieResultRow(movie: movie)
+                                SearchMovieResultRow(movie: movie, query: vm.trimmedQuery)
                             }
                             .buttonStyle(.plain)
 
                             Divider()
                                 .overlay(Color.white.opacity(0.08))
-                                .padding(.leading, 94)
+                                .padding(.leading, 112)
                         }
                     }
+                    .padding(.bottom, 30)
+                }
+            }
 
-                    if !vm.members.isEmpty {
-                        SearchResultsHeading("MEMBERS")
-                            .padding(.top, 18)
+        case .castCrew:
+            if vm.castCrew.isEmpty {
+                noResults("No cast or crew names contain “\(vm.trimmedQuery)”.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(vm.castCrew) { person in
+                            NavigationLink {
+                                SearchPersonFilmsView(person: person)
+                            } label: {
+                                SearchCastCrewResultRow(person: person)
+                            }
+                            .buttonStyle(.plain)
 
+                            Divider()
+                                .overlay(Color.white.opacity(0.08))
+                                .padding(.leading, 82)
+                        }
+                    }
+                    .padding(.bottom, 30)
+                }
+            }
+
+        case .members:
+            if vm.members.isEmpty {
+                noResults("No member usernames contain “\(vm.trimmedQuery)”.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
                         ForEach(vm.members) { member in
                             NavigationLink {
                                 ProfileView(userId: member.id, isOwnProfile: false)
@@ -314,10 +436,211 @@ struct SearchView: View {
                                 .padding(.leading, 82)
                         }
                     }
+                    .padding(.bottom, 30)
                 }
-                .padding(.bottom, 30)
             }
         }
+    }
+
+    private func noResults(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.largeTitle)
+                .foregroundStyle(AppTheme.secondaryText)
+            Text("No results")
+                .font(.headline)
+                .foregroundStyle(.white)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(AppTheme.secondaryText)
+                .multilineTextAlignment(.center)
+            Spacer()
+        }
+        .padding(28)
+    }
+}
+
+private struct SearchMovieResultRow: View {
+    let movie: Movie
+    let query: String
+
+    var body: some View {
+        HStack(spacing: 18) {
+            PosterView(
+                url: movie.posterUrl,
+                width: 74,
+                height: 111
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(movie.title)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+
+                    if let year = movie.releaseYear {
+                        Text(String(year))
+                            .font(.system(size: 15))
+                            .foregroundStyle(AppTheme.secondaryText)
+                    }
+                }
+
+                if let director = movie.director, !director.isEmpty {
+                    Text("Directed by \(director)")
+                        .font(.system(size: 15))
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .lineLimit(2)
+                }
+
+                if let rating = movie.averageRating {
+                    HStack(spacing: 5) {
+                        Image(systemName: "star.fill")
+                        Text(String(format: "%.1f", rating))
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.green)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+    }
+}
+
+private struct SearchCastCrewResultRow: View {
+    let person: SearchCastCrewPerson
+
+    var body: some View {
+        HStack(spacing: 13) {
+            ZStack {
+                Circle()
+                    .fill(Color(hex: "#2B3741"))
+
+                Text(String(person.name.prefix(1)).uppercased())
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(Color(hex: "#B8C8D5"))
+            }
+            .frame(width: 50, height: 50)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(person.name)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+
+                Text("\(person.roleText) · \(person.filmCountText)")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+
+                let titles = person.movies.prefix(2).map(\.title).joined(separator: ", ")
+                if !titles.isEmpty {
+                    Text(titles)
+                        .font(.caption)
+                        .foregroundStyle(Color(hex: "#8398AA"))
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(Color.white.opacity(0.25))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct SearchPersonFilmsView: View {
+    let person: SearchCastCrewPerson
+
+    var body: some View {
+        ZStack {
+            AppTheme.background
+                .ignoresSafeArea()
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(person.name)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(.white)
+
+                            Text("\(person.roleText) · \(person.filmCountText)")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
+                        }
+                        Spacer()
+                    }
+                    .padding(18)
+
+                    ForEach(person.movies) { movie in
+                        NavigationLink {
+                            MovieDetailView(movie: movie)
+                        } label: {
+                            SearchMovieResultRow(movie: movie, query: "")
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider()
+                            .overlay(Color.white.opacity(0.08))
+                            .padding(.leading, 112)
+                    }
+                }
+            }
+        }
+        .navigationTitle(person.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbarBackground(Color.black, for: .navigationBar)
+    }
+}
+
+private struct SearchMemberResultRow: View {
+    let member: ProfilePerson
+
+    var body: some View {
+        HStack(spacing: 13) {
+            AsyncImage(url: APIConfig.mediaURL(for: member.avatarUrl)) { phase in
+                if case .success(let image) = phase {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .resizable()
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+            }
+            .frame(width: 50, height: 50)
+            .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(member.username)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+
+                if let bio = member.bio, !bio.isEmpty {
+                    Text(bio)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.secondaryText)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(Color.white.opacity(0.25))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
     }
 }
 
@@ -402,120 +725,6 @@ private struct SearchInfoView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbarBackground(Color.black, for: .navigationBar)
-    }
-}
-
-private struct SearchResultsHeading: View {
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        Text(text)
-            .font(.caption.weight(.bold))
-            .tracking(0.8)
-            .foregroundStyle(AppTheme.secondaryText)
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
-            .padding(.bottom, 8)
-    }
-}
-
-private struct SearchMovieResultRow: View {
-    let movie: Movie
-
-    var body: some View {
-        HStack(spacing: 14) {
-            PosterView(
-                url: movie.posterUrl,
-                width: 62,
-                height: 92
-            )
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(movie.title)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-
-                    if let year = movie.releaseYear {
-                        Text(String(year))
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.secondaryText)
-                    }
-                }
-
-                if let director = movie.director, !director.isEmpty {
-                    Text("Directed by \(director)")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                        .lineLimit(1)
-                }
-
-                if let rating = movie.averageRating {
-                    HStack(spacing: 5) {
-                        Image(systemName: "star.fill")
-                        Text(String(format: "%.1f", rating))
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.green)
-                }
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(Color.white.opacity(0.25))
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-    }
-}
-
-private struct SearchMemberResultRow: View {
-    let member: ProfilePerson
-
-    var body: some View {
-        HStack(spacing: 13) {
-            AsyncImage(url: APIConfig.mediaURL(for: member.avatarUrl)) { phase in
-                if case .success(let image) = phase {
-                    image
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Image(systemName: "person.crop.circle.fill")
-                        .resizable()
-                        .foregroundStyle(AppTheme.secondaryText)
-                }
-            }
-            .frame(width: 50, height: 50)
-            .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(member.username)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
-
-                if let bio = member.bio, !bio.isEmpty {
-                    Text(bio)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                        .lineLimit(2)
-                }
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(Color.white.opacity(0.25))
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
     }
 }
 

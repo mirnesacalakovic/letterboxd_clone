@@ -67,6 +67,37 @@ struct ProfileOverviewTab: View {
                     .foregroundStyle(AppTheme.secondaryText)
                     .multilineTextAlignment(.center)
             }
+
+            if !vm.isOwnProfile {
+                Button {
+                    Task { await vm.toggleFollow() }
+                } label: {
+                    HStack(spacing: 7) {
+                        if vm.isFollowLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(vm.isFollowing ? .white : .black)
+                        }
+
+                        Text(vm.isFollowing ? "Following" : "Follow")
+                            .font(.subheadline.weight(.bold))
+                    }
+                    .foregroundStyle(vm.isFollowing ? .white : .black)
+                    .frame(minWidth: 118)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .background(vm.isFollowing ? AppTheme.cardBackground : AppTheme.green)
+                    .clipShape(Capsule())
+                    .overlay {
+                        if vm.isFollowing {
+                            Capsule()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(vm.isFollowLoading)
+            }
         }
         .frame(maxWidth: .infinity)
     }

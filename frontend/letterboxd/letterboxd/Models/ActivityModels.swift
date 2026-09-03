@@ -14,6 +14,55 @@ enum ActivityTab: String, CaseIterable, Hashable {
     }
 }
 
+
+enum ActivityFilter: String, CaseIterable, Hashable, Identifiable {
+    case reviews
+    case ratings
+    case watched
+    case watchlist
+    case likes
+    case comments
+    case follows
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .reviews: return "Reviews"
+        case .ratings: return "Ratings"
+        case .watched: return "Watched films"
+        case .watchlist: return "Watchlist"
+        case .likes: return "Review likes"
+        case .comments: return "Comments"
+        case .follows: return "New followers"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .reviews: return "text.bubble"
+        case .ratings: return "star"
+        case .watched: return "eye"
+        case .watchlist: return "bookmark"
+        case .likes: return "heart"
+        case .comments: return "bubble.left"
+        case .follows: return "person.badge.plus"
+        }
+    }
+
+    func matches(_ activity: ActivityItem) -> Bool {
+        switch self {
+        case .reviews: return activity.type == "review"
+        case .ratings: return activity.type == "rating"
+        case .watched: return activity.type == "watched"
+        case .watchlist: return activity.type == "watchlist"
+        case .likes: return activity.type == "review_like"
+        case .comments: return activity.type == "comment"
+        case .follows: return activity.type == "follow"
+        }
+    }
+}
+
 struct ActivityResponse: Decodable {
     let activities: [ActivityItem]
 }
